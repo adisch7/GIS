@@ -1,0 +1,110 @@
+import pyproj
+import pandas
+import time 
+
+# set time of start process
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("start time:", local_time)
+
+file = pd.read_csv('C:\\Users\\USER\\Downloads\\temo.csv', encoding = 'windows-1255')
+
+def transform_coordinates(x_list, y_list, src_crs, dst_crs):
+  """
+  Transforms a list of X and Y coordinates from one projection to another.
+
+  Args:
+    x_list: A list of X coordinates.
+    y_list: A list of Y coordinates.
+    src_crs: The source projection.
+    dst_crs: The destination projection.
+
+  Returns:
+    A list of transformed X coordinates and a list of transformed Y coordinates.
+  """
+
+  transformer = pyproj.Transformer.from_crs(src_crs, dst_crs)
+  transformed_x_list = []
+  transformed_y_list = []
+  for x, y in zip(x_list, y_list):
+    transformed_x, transformed_y = transformer.transform(x, y)
+    transformed_x_list.append(transformed_x)
+    transformed_y_list.append(transformed_y)
+
+  return transformed_x_list, transformed_y_list
+
+
+if __name__ == "__main__":
+  # Define the source and destination projections.
+  src_crs = "EPSG:2039"
+  dst_crs = "EPSG:4326"
+
+  xlist = list(file['X'])
+  ylist = list(file['Y'])
+
+  # Transform the coordinates.
+  transformed_x_list, transformed_y_list = transform_coordinates(xlist, ylist, src_crs, dst_crs)
+
+  # Print the transformed coordinates.
+  print(transformed_x_list)
+  print(transformed_y_list)
+    
+# set time of end process
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("end time:", local_time)
+
+# way 2 for tranform
+from pyproj import Proj, transform
+import time
+import pandas as pd
+data = pd.read_csv('C:\\Users\\USER\\Downloads\\business_Missing_LL_TryToCoor.csv', encoding = 'utf-8')
+
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("start time:", local_time)
+
+# projections
+inProj = Proj(init='epsg:4326')
+outProj = Proj(init='epsg:2039')
+
+# lng and lat to lists 
+lnglist = list(data['lng'])
+latlist = list(data['lat'])
+
+# turn all values to str 
+lnglist_to_str = []
+for i in lnglist:
+    i_str = str(i)
+    lnglist_to_str.append(i_str)
+lnglist = lnglist_to_str
+
+latlist_to_str = []
+for i in latlist:
+    i_str = str(i)
+    latlist_to_str.append(i_str)
+latlist = latlist_to_str
+
+# create empty lists to append the XY results 
+foundxlist = []
+foundylist = []
+
+for i in range(0, len(lnglist)):
+    x1 = lnglist[i]
+    y1 = latlist[i]
+    x2,y2 = transform(inProj,outProj,x1,y1)
+#    print(x2,y2)
+    foundxlist.append(x2)
+    foundylist.append(y2)
+
+#x1,y1 = 192775.96955392143,713257.3957434092
+#x2,y2 = transform(inProj,outProj,x1,y1)
+#print (x2,y2)
+
+data['X'] = foundxlist
+data['Y'] = foundylist
+data.to_csv(f'C:\\Users\\USER\\Downloads\\DataWithXY.csv', encoding = 'windows = 1255', index = False)
+
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("end time:", local_time)
