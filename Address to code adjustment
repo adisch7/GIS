@@ -1,0 +1,177 @@
+import numpy as np
+import pandas as pd
+from pathlib import Path
+import requests
+import sched, time
+import openpyxl as xl
+from openpyxl import Workbook
+
+############ upload tables
+
+# set time of beginning process
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("Local time:", local_time)
+
+addr_to_code = pd.read_excel('I:\\AGG & POPs\\GIS\\ADDR_to_CODE_2022.xlsx')
+missingxy = pd.read_csv('I:\\AGG & POPs\\GIS\\MONTHLY_MOC_REPORT\\Ground Zero\\FiberAccess_Partner_28022023_MissingBuildID_2.0.csv', encoding='windows-1255') # change path and name
+print('this MissingXY dataframe is:',len(missingxy),'long')
+
+# set time of ending process
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("Start time:", local_time)
+
+############ rename names
+missingxy['CITY_NAME'].replace('תל אביב - יפו', 'תל אביב-יפו')
+missingxy['CITY_NAME'].replace('הרצלייה', 'הרצליה')
+missingxy['CITY_NAME'].replace('יהוד', 'יהוד-מונוסון')
+missingxy['CITY_NAME'].replace('יוקנעם עילית', 'יקנעם עילית')
+
+missingxy['STREET_NAME'].replace('דרך' , '')
+missingxy['STREET_NAME'].replace('שביל' , '')
+missingxy['STREET_NAME'].replace('משעול' , '')
+missingxy['STREET_NAME'].replace('שדרת' , '')
+missingxy['STREET_NAME'].replace("שד'" , '')
+missingxy['STREET_NAME'].replace('כיכר' , '')
+missingxy['STREET_NAME'].replace('סמ' , '')
+missingxy['STREET_NAME'].replace("סמ'" , '')
+missingxy['STREET_NAME'].replace('שד' , '')
+missingxy['STREET_NAME'].replace('יקינטון' , 'יקינתון')
+missingxy['STREET_NAME'].replace('מבוא' , '')
+missingxy['STREET_NAME'].replace('רחבת' , '')
+missingxy['STREET_NAME'].replace('שדרות' , '')
+missingxy['STREET_NAME'].replace('שדרת' , '')
+
+############ columns to lists
+
+# find city code
+settele_name = addr_to_code['SETL_NAME'].tolist()
+settele_code = addr_to_code['SETL_CODE'].tolist()
+cities = missingxy['CITY_NAME'].tolist()
+
+# find street code
+settle_street = addr_to_code['STR_CITY_PACHED'].tolist()
+cities_streets = (missingxy['CITY_NAME'].astype(str) +""+ missingxy["STREET_NAME"]).tolist()
+settle_code = addr_to_code['STR_CODE'].tolist()
+
+# house number to list and house entry to list
+hn_list = missingxy['HOUSE_NUMBER'].tolist()
+he_list = missingxy['HOUSE_ENTRY'].tolist()
+
+# find XY
+east = addr_to_code["ADRPT_EAST"].tolist()
+north = addr_to_code["ADRPT_NRTH"].tolist()
+city_str_hn_he_pached = addr_to_code['CITY&STR&HN&HE'].tolist()
+city_str_hn_he_pached=' '.join([str(item) for item in city_str_hn_he_pached])
+
+############ iterate on city name
+city_code = []
+
+for i in cities:
+    try:
+        first_idx = settele_name.index(i)
+        city_code.append(settele_code[first_idx])
+
+    except ValueError:                           
+        city_code.append(None) 
+
+############ iterate on street name
+street_code = []
+
+for i in cities_streets:
+    try:
+        first_idx = settle_street.index(i)
+        street_code.append(settle_code[first_idx])
+
+    except ValueError:                           
+        street_code.append(None)
+
+############ columns for str type to attach    
+city_code_to_str = []
+for i in city_code:
+    i_str = str(i)
+    city_code_to_str.append(i_str)
+city_code = city_code_to_str
+
+street_code_to_str = []
+for i in street_code:
+    i_str = str(i)
+    street_code_to_str.append(i_str)
+street_code = street_code_to_str
+
+hn_list_to_str = []
+for i in hn_list:
+    i_str = str(i)
+    hn_list_to_str.append(i_str)
+hn_list = hn_list_to_str
+
+he_list_to_str = []
+for i in he_list:
+    i_str = str(i)
+    he_list_to_str.append(i_str)
+he_list = he_list_to_str
+
+############ iterate on attach of city, street, house number, house entry
+attach_list = []
+for i in range(0, len(city_code)):
+    attach_list.append(str(city_code[i]) + str(street_code[i]) + str(hn_list[i]) + str(he_list[i]))
+
+attach_list=' '.join([str(item) for item in attach_list])
+attach_list
+
+############ iterate on attach code to find Y
+attach_code_north = []
+
+for i in attach_list:
+    try:
+        first_idx = city_str_hn_he_pached.index(i)
+        attach_code_north.append(north[first_idx])
+
+    except ValueError:                           
+        attach_code_north.append(None)
+
+attach_code_north
+
+# append to missingxy
+missingxy['Y'] = pd.Series(attach_code_north)
+
+############ iterate on attach code to find X
+attach_code_east = []
+
+for i in attach_list:
+    try:
+        first_idx = city_str_hn_he_pached.index(i)
+        attach_code_east.append(east[first_idx])
+
+    except ValueError:                           
+        attach_code_east.append(None)
+
+attach_code_east
+
+# append to missingxy
+missingxy['X'] = pd.Series(attach_code_east)
+
+# set time of ending process
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("End time:", local_time)
+
+
+############ export file
+
+missingxy.to_csv(f'I:\\AGG & POPs\\GIS\\MONTHLY_MOC_REPORT\\FiberAccess_Partner_28022023\\expo_28022023FoundXY.csv', encoding = 'windows-1255') # change path
+
+###### separating the missing xy and found xy
+print('length of missingxy so far:',len(missingxy))
+
+foundxy = missingxy.dropna(subset = ['X']) # rows with found x, sent to separate dataframe
+
+delta = pd.read_csv('I:\\AGG & POPs\\GIS\\MONTHLY_MOC_REPORT\\FiberAccess_Partner_28022023\\FiberAccess_28022023_Delta_1.0.csv', encoding = 'windows=1255') # not always needed
+delta = delta.append(foundxy) # copy these rows to delta
+delta.to_csv(f'I:\\AGG & POPs\\GIS\\MONTHLY_MOC_REPORT\\FiberAccess_Partner_28022023\\FiberAccess_28022023_Delta_2.0.csv', encoding='Windows-1255',index = False) # change path
+
+missingxy = missingxy.drop(list(missingxy[missingxy['X'].notna()].index)) # dataframe with missingxy
+
+print('length of missingxy after foundxy:',len(missingxy))
+missingxy.to_csv(f'I:\\AGG & POPs\\GIS\\MONTHLY_MOC_REPORT\\FiberAccess_Partner_28022023\\Delta_28022023_MissingXY_3.0.csv', encoding = 'windows = 1255') # change path
