@@ -1,0 +1,58 @@
+import pyproj
+import pandas
+import time 
+
+# set time of start process
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("start time:", local_time)
+
+file = pd.read_csv('C:\\Users\\USER\\Downloads\\temo.csv', encoding = 'windows-1255')
+
+
+
+def transform_coordinates(x_list, y_list, src_crs, dst_crs):
+  """
+  Transforms a list of X and Y coordinates from one projection to another.
+
+  Args:
+    x_list: A list of X coordinates.
+    y_list: A list of Y coordinates.
+    src_crs: The source projection.
+    dst_crs: The destination projection.
+
+  Returns:
+    A list of transformed X coordinates and a list of transformed Y coordinates.
+  """
+
+  transformer = pyproj.Transformer.from_crs(src_crs, dst_crs)
+  transformed_x_list = []
+  transformed_y_list = []
+  for x, y in zip(x_list, y_list):
+    transformed_x, transformed_y = transformer.transform(x, y)
+    transformed_x_list.append(transformed_x)
+    transformed_y_list.append(transformed_y)
+
+  return transformed_x_list, transformed_y_list
+
+
+if __name__ == "__main__":
+  # Define the source and destination projections.
+  src_crs = "EPSG:2039"
+  dst_crs = "EPSG:4326"
+
+
+  xlist = list(file['X'])
+  ylist = list(file['Y'])
+
+  # Transform the coordinates.
+  transformed_x_list, transformed_y_list = transform_coordinates(xlist, ylist, src_crs, dst_crs)
+
+  # Print the transformed coordinates.
+  print(transformed_x_list)
+  print(transformed_y_list)
+    
+# set time of end process
+seconds = time.time()
+local_time = time.ctime(seconds)
+print("end time:", local_time)
