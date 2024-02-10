@@ -1,0 +1,155 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon May 15 10:25:13 2023
+
+@author: aschneider2
+"""
+
+import ezdxf
+import re
+import pandas as pd
+
+doc = ezdxf.readfile("path\\filename.dxf") # change path
+layout_names = doc.layouts.names()
+layout = layout_names[4]
+layout = doc.layouts.get(layout)
+entity_data = {}
+dict_points = {}
+
+for entity in layout:
+    if entity.dxf.layer == '00-mis_bait':
+        x, y, _ = entity.dxf.insert
+        try:
+            entity_data = entity.xdata.data['ACAD']
+            val = list(filter(lambda x: 'BLDG_NUM=' in x.value, entity_data))[0].value
+            build_number = None
+            match = re.search('[0-9]+', val)
+
+            if match:
+                build_number = int(match.group())
+        except:
+            build_number = 0
+        dict_points[build_number] = (x, y)
+print(dict_points)
+
+settle = pd.read_csv('path\\filename.csv', encoding = 'windows-1255') # change path
+hn_list = list(settle['TEXTSTRING'])
+print(hn_list)
+hn_projmap = [] # Create an empty list to store the results
+
+# Loop through each item in the list
+for item in hn_list:
+    # Remove the curly braces from each item
+    item = item.strip('{}').replace('p','') 
+    # Split the item on the '|' character
+    item = item.split('|') 
+    # Get the last element in the split list
+    last_item = item[-1] 
+    # Split the item on the '|' character
+    last_item = last_item.split(';') 
+    # Get the last element in the split list
+    final_num = last_item[-1] 
+    # Get the last element in the split list
+    hn_projmap.append(final_num)
+# append back to house frame
+settle['house number proj map'] = hn_projmap
+
+# save to new csv file
+settle.to_csv('path\\filename.csv', encoding = 'windows-1255') # change path
+
+######## compare csv for cad with moc
+moc = pd.read_csv('path\\filename.csv', encoding = 'windows-1255') # change path
+
+def find_house_numbers(df, city_name, street_name):
+  """
+  Finds the house numbers for a specific city name and street name.
+
+  Args:
+    df: The pandas DataFrame.
+    city_name: The city name to search for.
+    street_name: The street name to search for.
+
+  Returns:
+    A DataFrame of the house numbers and house entries for the matching rows.
+  """
+  matching_rows = df[df["CITY_NAME"] == city_name]
+  matching_rows = matching_rows[matching_rows["STREET_NAME"] == street_name]
+  house_numbers = []
+  for row in matching_rows.iterrows():
+      house_entry=row[1]["HOUSE_ENTRY"]
+      if isinstance(house_entry,float):
+          house_entry=''
+      house_numbers.append(str(row[1]["HOUSE_NUMBER"]) + str(house_entry))
+  new_df = pd.DataFrame({"HOUSE_NUMBER_ENTRY": house_numbers})
+  return new_df
+
+new_df = (find_house_numbers(moc, "אבן מנחם", "אבן מנחם")) # change names
+
+# create lists to contain the columns
+hn_he_list = list(new_df['HOUSE_NUMBER_ENTRY'])
+settle_Xlist = list(settle['x'])
+settle_Ylist = list(settle['y'])
+
+validx = []
+for i in hn_he_list:
+    try:
+        first_idx = hn_projmap.index(i)
+        validx.append(settle_Xlist[first_idx])
+
+    except ValueError:                           
+        validx.append(None)
+
+validy = []
+for i in hn_he_list:
+    try:
+        first_idx = hn_projmap.index(i)
+        validy.append(settle_Ylist[first_idx])
+
+    except ValueError:                           
+        validy.append(None)
+
+print('The number of house number values list of moc report by settele name is:',len(hn_he_list))
+print('The length of X values is:',len(validx))
+print('The length of Y values is:',len(validy))
+
+# first copy the rows to new dataframe and then drop settele from moc
+mask = moc['CITY_NAME'].values == 'אבן מנחם ' # change name
+'''
+new dataframe
+'''
+temp_df = moc[mask]
+temp_df['X'] = validx
+temp_df['Y'] = validy
+
+print('length moc before drop:',len(moc))
+moc.drop(moc[moc['CITY_NAME'] == 'אבן מנחם'].index, inplace = True) # change name
+print('length moc after drop:', len(moc))
+# append settele back to moc
+moc = moc.append(temp_df)
+print('length moc after append back:', len(moc))
+moc.to_csv('path\\filename.csv', encoding = 'windows-1255') # change path
+
+# frame for example
+"""
+if __name__ == "__main__":
+  df = pd.DataFrame({
+    "city_name": ["San Francisco", "San Francisco", "Los Angeles", "Los Angeles"],
+    "street_name": ["Market Street", "Van Ness Avenue", "Hollywood Boulevard", "Wilshire Boulevard"],
+    "house_number": [100, 200, 300, 400],
+    "house_entry": ["A", "B", "C", "D"]
+  }) """
+
+######## extras
+# separate int and string
+data = pd.read_csv(r'path\\filename.csv', engine='python') # change path
+data['house entry'] = [re.match(r'(\d+)(\D+)', x).groups()[1] if re.match(r'(\d+)(\D+)', x) else '' for x in data['house number']]
+data['house number'] = [re.sub(r'\D', '', x) if re.match(r'(\d+)(\D+)', x) else x for x in data['house number']]
+data.to_csv(r'path\\filename.csv', encoding='windows-1255') # change path
+
+#read again to delete 0 in huose num column
+settle = pd.read_csv('path\\filename.csv', encoding = 'windows-1255')
+settle = settle.drop(settle[settle['house number'] == 0].index, inplace=True)
+settle = settle.drop('house number', axis=1)
+
+settle.to_csv('path\\filename.csv', encoding = 'windows-1255')
+
