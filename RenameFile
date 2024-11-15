@@ -1,0 +1,32 @@
+
+import shutil , os 
+from shutil import copy2
+
+input_path = r"<Path>"
+destination_path = r"<Path>"
+folder_path = r"<Path>"
+
+
+'''Rename files and Copy to new path'''
+for filename in os.listdir(input_path):
+    new_file = filename.replace('Layout_', '2023_')
+#     #new_file = filename.decode('cp1255')  # Not in use
+#     #new_file = filename.encode('utf-8') # Not in use
+#     #input_path = os.path.join(input_path, filename) # Not in use
+#    #destination_path = os.path.join(destination_path, new_file) # Not in use
+    print (filename, '>> ', new_file)
+    copy2(input_path + r'\{}'.format(filename), f'{destination_path}\{new_file}')
+
+'''Create common folder for each settlement'''
+pdf_files = [f for f in os.listdir(folder_path) if f.endswith('.pdf')]
+for file in pdf_files:
+    base_name = file.split('_')[1].replace('.pdf',"")
+    folder_name = os.path.join(folder_path, base_name)
+    os.makedirs(folder_name, exist_ok = True)
+    src = os.path.join(folder_path, file)
+    dest = os.path.join(folder_name, file)
+    shutil.move(src,dest)
+
+print ("Finished")
+
+
