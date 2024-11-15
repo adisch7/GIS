@@ -1,0 +1,60 @@
+import pandas as pd
+import arcpy
+from collections import defaultdict
+
+workspace = r"<path\GDB.gdb>"
+input_table = "TOPO_STREET_NAME"
+output_excel = r"<path.xls>"
+
+# query on table and then export to excel
+query = 'NOT("STR_CODE" BETWEEN 7000 AND 7999) AND ("SETL_CODE" < 10000)'
+
+# Conversion from arcgis table to excel table
+try:
+    arcpy.MakeTableView_management(workspace + "\\" + input_table, 'input_table', query)
+    counter = arcpy.GetCount_management('input_table')
+    arcpy.TableToExcel_conversion('input_table', output_excel)
+    print("Conversion Successful")
+except Exception as error:
+    print("Error:", error)
+
+
+# Load table to DataFrame
+df = pd.read_excel(r"<path.xls>", encoding = 'windows-1255')
+print "The length of this DataFrame is: ", len(df)
+
+def columns_to_json(df, output_json):
+    # Store lists as values
+    result = defaultdict(list)
+
+    # Iterate throght DataFrame
+    for row in df.iterrows():
+        result[row['STR_NAME']].append(row['STR_NAME_LAMAS'])
+
+    # Result to json file
+    with open(output_json, 'w', encoding='utf-8') as json_file:
+        json.dump(result, json_file, ensure_ascii=False, indent=4)
+
+def json_to_csv(json_file, output_csv, new_headers):
+     # Load json file
+     with open(json_file, 'r', encoding - 'utf-8') as f:
+         data = json.load(f)
+
+     # Convert json to DataFrame
+     df = pd.DataFrame({
+         'STR_NAME': list(data.keys()),
+         # Replace NaN with key value, remove duplicates by converting to set
+         'STR_NAME_LAMAS': [','.join(soretd(set(str(value) if pd.notna(value) else key for value in values)))
+         for key, values in data.items()
+         ]
+     })    
+
+     # Rename Columns
+     df.columns = new_headers
+
+     df.to_csv(output_csv, index = False, encoding = 'utf-8-sig') 
+
+output_json = "TOPO_STREET_NAME.json"
+columns_to_json(df, output_json)
+output_csv = "<path.csv>"
+json_to_csv(output_json,output_csv, ['שם רחוב','שם רחוב למס'])
