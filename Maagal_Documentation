@@ -1,0 +1,438 @@
+import arcpy
+import datetime
+import random
+
+# Set time beginning of process
+now = datetime.datetime.now()
+print("start time:", now.strftime("%H:%M:%S"))
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+# Set Layers and GDB
+arcpy.env.overwriteOutput = True
+
+gdb_new = r'<Path\GDB.gdb>'
+roads = gdb_new + "<path>"
+settelements = gdb_new + "<path>"
+bldg = gdb_new + "<path>"
+gdb_old = r'<Path\GDB.gdb>'
+#gdb_old = r'<Path\GDB.gdb>'
+grid = gdb_old + "<path>"
+junctions = gdb_new + "<path>"
+bntl = r'<path>' # BLDG from BNTL
+
+# Calculate difference Between BNTL and MAAGAL
+def result_difference(layer1, layer2):
+    count1 = arcpy.GetCount_management(layer1)
+    count2 = arcpy.GetCount_management(layer2)
+    print "The number of records of {}: ".format(count1)
+    print "The number of records of {}: ".format(count2)
+    difference = int(arcpy.GetCount_management(layer1).getOutput(0))-int(arcpy.GetCount_management(layer2).getOutput(0))
+    print "Difference of BNTL and MAAGAL:", difference
+
+    if difference != 0:
+        raise ValueError("there are records Differences between the 2 BNTL and MAAGAL")
+
+    return difference
+
+# Specify path for new GDB
+def create_gdb(results, name):
+    if not arcpy.Exists(results + '\\' + name + '.gdb'):
+        temp_gdb = arcpy.CreateFileGDB_management(results,name)
+    else:
+        temp_gdb = results + '\\' + name + '.gdb'
+    return temp_gdb
+
+
+'''Building on layer outline boundaries'''
+
+def cross_outline(input_layer1, input_layer2, output_layer):
+
+    # Select by location
+    bldg_lyr = arcpy.MakeFeatureLayer_management(input_layer1, 'bldg_lyr')  # Create feature layer
+    settelments_dissolved = arcpy.Dissolve_management(input_layer2, errors_gdb + "\\Settelments_dissolved", "", "",
+                                                      "MULTI_PART")
+    bldg_cross_outline = arcpy.SelectLayerByLocation_management(bldg_lyr, "CROSSED_BY_THE_OUTLINE_OF",
+                                                                settelments_dissolved)  # Intersect by location
+    print "Number of records - Buildings on boundaries: " ,arcpy.GetCount_management(bldg_cross_outline)
+
+    arcpy.Select_analysis(bldg_cross_outline, output_layer)
+    return output_layer
+
+
+'''Roads Checks'''
+'''First and Second section'''
+
+def first_and_second_section_road(roads, settelements, query, output_path):
+
+    # Select by location
+    roads_lyr = arcpy.MakeFeatureLayer_management(roads, 'roads_lyr') # Create feature layer
+    roads_loc = arcpy.SelectLayerByLocation_management(roads_lyr, 'INTERSECT', settelements) # Intersect by location
+    result_loc = arcpy.GetCount_management(roads_loc)
+    print "Number of records - LAYER BY LOCATION: " ,result_loc
+
+    # Select by attribute
+    roads_loc_sec1 = arcpy.MakeFeatureLayer_management(roads_loc, 'roads_loc_sec1', query) # Create feature layer
+    result_sec1 = arcpy.GetCount_management(roads_loc_sec1)
+    print "Number of records - LAYER_location BY SELECTION in layer first section: " ,result_sec1
+
+    # Export selection to new feature class
+    print "Export 'logic_num = NULL' or 'mzm = NULL' to Feature"
+    arcpy.Select_analysis(roads_loc_sec1, output_path)
+
+    return output_path
+
+
+'''Third section'''
+def road_label_track(input_layer, settelements, output_layer):
+
+    # Select by location
+    input_layer = arcpy.MakeFeatureLayer_management(input_layer, 'road_lyr') # Create feature layer
+    input_layer = arcpy.SelectLayerByLocation_management(input_layer, 'INTERSECT', settelements) # Intersect by location
+    input_layer = arcpy.MakeFeatureLayer_management(input_layer, 'input_layer') # Create another feature layer
+    print "Number of records - ROADS BY LOCATION: " ,arcpy.GetCount_management(input_layer)# error_count = 0
+
+    error_count = 0
+    error_records = []
+    fields = ["OID@", "label", "STR_NAME", "ROAD_NUM", "logic_num"]
+
+    # Start search cursor
+    with arcpy.da.SearchCursor(input_layer, fields) as cursor:
+        for row in cursor:
+            oid, label, str_name, road_num, logic_num = row
+            # Convert label to str if it's unicode object
+            if isinstance(label, unicode):
+                label = label.encode('utf-8')
+            if isinstance(str_name, unicode):
+                str_name = str_name.encode('utf-8')
+            if isinstance(road_num, unicode):
+                road_num = road_num.encode('utf-8')
+            if isinstance(logic_num, unicode):
+                logic_num = logic_num.encode('utf-8')
+            # Check if label contain any of the fields
+            if str(str_name) not in str(label) and str(road_num) not in str(label) and str(logic_num) not in str(label):
+                error_count += 1
+                error_records.append(oid)
+
+    # Create feature class for unmatched_records to output path
+    if error_records:
+        query = "OBJECTID IN ({})".format(','.join(map(str, error_records)))
+        # Create feature layer
+        arcpy.MakeFeatureLayer_management(input_layer, "temp_layer", query)
+        # Export unmatched items to output path
+        arcpy.CopyFeatures_management("temp_layer", output_layer)
+        result = arcpy.GetCount_management("temp_layer")
+        print "Number of Label Errors: ", result
+        print("Unmatched items exported to: {}".format(output_layer))
+    else:
+        query = ""
+        temp = arcpy.MakeFeatureLayer_management(input_layer, "temp_layer", query)
+        arcpy.Select_analysis(temp, output_layer, '"OBJECTID" < 0')
+        print "No Unmatched items"
+
+    return error_count
+
+
+
+'''Fourth section'''
+# Random check of roads and grid 100m layers
+def checkRandomroads(roads, grid, num_of_randoms):
+    # get maximum objectid
+    arcpy.MakeFeatureLayer_management(roads, 'roads_lyr')
+    count = int(str(arcpy.GetCount_management('roads_lyr')))
+    # get randoms
+    random_numbers = [random.randint(1, count) for _ in range(num_of_randoms)]
+    numbers_as_str = str(random_numbers)[1:-1] # Remove [] from side to be left only with doiits
+    # filter roads
+    arcpy.MakeFeatureLayer_management(roads, 'roads_random', '"OBJECTID" IN (' + numbers_as_str + ')' )
+    result = arcpy.GetCount_management('roads_random')
+    print result
+
+    # intersect random bldg with all grids
+    arcpy.Intersect_analysis(['roads_random', grid],  roads + "_intersect")
+
+    roads_intersect = roads + "_intersect" # Name the layer
+    # Col_Row came from original bldg grid.
+    # Col_Row_1 came from the intersection (can contain wrong Col_Row id)
+    col_rows = [row.getValue('Col_Row') for row in arcpy.SearchCursor(roads_intersect) if row.getValue('Col_Row') != None]
+    col_rows = list(set(col_rows))
+    no_match_cols = []
+    for col in col_rows:
+        # collect list of from Col_Row_1 where = col
+        col_list = [row.getValue('Col_Row_1') for row in arcpy.SearchCursor(roads_intersect) if row.getValue('Col_Row') == col]
+        if col not in col_list:
+            no_match_cols.append(col.encode('utf-8'))
+
+    if len(no_match_cols) > 0:
+        # export the err cols from bldg_intersect
+        arcpy.Select_analysis(roads_intersect, errors_gdb + "\\ROADS_ColRow_ERR", '"Col_Row" IN ('+str(no_match_cols)[1:-1]+')')
+    else:
+        arcpy.Select_analysis(roads_intersect, errors_gdb + "\\ROADS_ColRow_ERR", '"OBJECTID" < 0')
+
+    print("The number of Col_row errors in these samples is: ", len(no_match_cols))
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+'''BLDG checks'''
+'''First and Second sections'''
+def first_and_second_section_bldg(bldg, settelements, gdb):
+
+    # Select by location
+    bldg_lyr = arcpy.MakeFeatureLayer_management(bldg, 'roads_lyr') # Create feature layer
+    bldg_loc = arcpy.SelectLayerByLocation_management(bldg_lyr, 'INTERSECT', settelements) # Intersect by location
+    result_loc = arcpy.GetCount_management(bldg_loc)
+    print "Number of records - BLDG BY LOCATION: " ,result_loc
+
+    # Select by attribute
+    query = '"ADDR_ID" IS NULL AND "mzm" IS NULL'
+    bldg_loc_sel1 = arcpy.MakeFeatureLayer_management(bldg_loc, 'bldg_loc_sel1', query)  # Create feature layer
+    result = arcpy.GetCount_management(bldg_loc_sel1)
+    print "Error Note - When BLDG SELECTION of addr_id : Get logic_num NULL", result
+
+    # Export selection to new feature class
+    print "Export 'mzm = NULL' to feature"
+    arcpy.Select_analysis(bldg_loc_sel1, errors_gdb + "\\Error_BLDG_AddrIdNull_LogicNumNull")
+
+    # Prepare selection for next step
+    query = '"ADDR_ID" IS NULL'  # not "logic_num" IS NULL'
+    bldg_loc_sel1 = arcpy.MakeFeatureLayer_management(bldg_loc, 'bldg_loc_sel1', query)  # Create feature layer
+    result = arcpy.GetCount_management(bldg_loc_sel1)
+    print "Number of records - BLDG_location BY SELECTION in Second section: Middle Score", result
+
+    # Set continue selection by attribute, use 'bldg_loc_sel1' variable
+    # instead of query: '"mzm" IS NOT NULL AND "logic_num" IS NOT NULL' and then SWITCH selection, USE THE QUERY BELOW
+    query = '"ADDR_ID" IS NOT NULL OR ("mzm" IS NULL OR "logic_num" is null)'
+    bldg_loc_sel2 = arcpy.MakeFeatureLayer_management(bldg_loc_sel1, 'bldg_loc_sel2', query)  # Create feature layer
+    print "Number of records - after SWITCH selection: ", arcpy.GetCount_management(bldg_loc_sel2)
+
+    # Check which records got 'mzm' num within the group of values 12, 13, 22, 23
+    query = '"FTYPE" IN (12, 13, 22, 23) AND "mzm" IS NOT NULL'  # purpose to find 'mzm' num records which is an error
+    with_mzm_num = arcpy.MakeFeatureLayer_management(bldg_loc_sel2, 'with_mzm_num', query)
+    print "Error Note - Amount of Buildings 12,13,22,23 with MZM NUM: ", arcpy.GetCount_management(with_mzm_num)
+
+    query = '"FTYPE" NOT IN (12, 13, 22, 23) AND "mzm" IS NULL'  # purpose to find no 'mzm' num records which is an error
+    without_mzm_num = arcpy.MakeFeatureLayer_management(bldg_loc_sel2, 'without_mzm_num', query)
+    print "Error Note - Amount of Buildings without MZM NUM: ", arcpy.GetCount_management(without_mzm_num)
+
+    # Export to feature
+    print("Export 'mzm = NULL' to Features")
+    arcpy.Select_analysis(with_mzm_num, errors_gdb + "\\Error_BLDG_type_With_mzm")
+    arcpy.Select_analysis(without_mzm_num, errors_gdb + "\\Error_BLDG_type_Without_mzm")
+
+
+
+'''Third step'''
+def bldg_label_track(input_layer, output_layer, settelements, query):
+
+    # Select by location
+    input_layer = arcpy.MakeFeatureLayer_management(input_layer, 'bldg_lyr') # Create feature layer
+    input_layer = arcpy.SelectLayerByLocation_management(input_layer, 'INTERSECT', settelements) # Intersect by location
+    print "Number of records - BLDG BY LOCATION: " ,arcpy.GetCount_management(input_layer)
+
+    # Select by attribute
+    input_layer = arcpy.MakeFeatureLayer_management(input_layer, 'bldg_label', query) # Create feature layer
+    print "Number of records - LAYER_location BY SELECTION in layer label section: " ,arcpy.GetCount_management(input_layer)
+
+
+    unmatched_records = []
+    unmatched_count = 0
+
+    # Go through each record in the feature layer
+    with arcpy.da.SearchCursor(input_layer, ['label','mzm', 'OID@']) as cursor:
+        for row in cursor:
+            label = row[0] # Extract label field value
+            mzm = row[1] # Extract mzm field value
+            object_id = row[2] # Extract Object_id
+            # Convert label to str if it's unicode object
+            if isinstance(label, unicode):
+                label = label.encode('utf-8')
+            # Extract numeric part in label field
+            label_numbers = ''.join(filter(str.isdigit, label))
+
+            # Check if extracted numbers match mzm field
+            if label_numbers and int(label_numbers) != int(mzm):
+                unmatched_count += 1
+                unmatched_records.append(object_id)
+
+    # Create feature class for unmatched_records to output path
+    if unmatched_records:
+        query = "OBJECTID IN ({})".format(','.join(map(str, unmatched_records)))
+        # Create feature layer
+        arcpy.MakeFeatureLayer_management(input_layer, "temp_layer", query)
+        # Export unmatched items to output path
+        arcpy.CopyFeatures_management("temp_layer", output_layer)
+        result = arcpy.GetCount_management("temp_layer")
+        print "Number of Label Errors: ", result
+        print("Unmatched items exported to: {}".format(output_layer))
+    else:
+        temp = arcpy.MakeFeatureLayer_management(input_layer, "temp_layer", query)
+        arcpy.Select_analysis(temp, output_layer, '"OBJECTID" < 0')
+        print "No Unmatched items"
+
+
+    return unmatched_count
+
+
+# # Set new layer to check ERRORS in opposite case - ADDR_ID isn't NULL then don't get label
+# query = '"ADDR_ID" IS NOT NULL AND "label" IS NOT NULL'
+# bldg_addr_id = arcpy.MakeFeatureLayer_management(bldg_loc, 'bldg_lyr_location', query)
+# result = arcpy.GetCount_management(bldg_addr_id)
+# print("Number of records in BLDG label column: ", result)
+# # Export to feature
+# print("Export label records to Feature")
+# arcpy.Select_analysis(bldg_addr_id, gdb_new + "\\Error_label_WithValues")
+
+
+'''Fourth section'''
+# random check of buildings and grid 100m layers
+def checkRandomBldgs(bldg, grid, num_of_randoms):
+    # get maximum objectid
+    arcpy.MakeFeatureLayer_management(bldg, 'bldg_lyr')
+    count = int(str(arcpy.GetCount_management('bldg_lyr')))
+    # get  randoms
+    random_numbers = [random.randint(1, count) for _ in range(num_of_randoms)]
+    numbers_as_str = str(random_numbers)[1:-1]  # Remove [] from side to be left only with doiits
+    # filter bldg
+    arcpy.MakeFeatureLayer_management(bldg, 'bldg_random', '"OBJECTID" IN (' + numbers_as_str + ')' )
+    result = arcpy.GetCount_management('bldg_random')
+    print result
+
+    # intersect random bldg with all grids
+    arcpy.Intersect_analysis(['bldg_random', grid],  bldg + "_intersect")
+
+    bldg_intersect = bldg + "_intersect"  # Name the layer
+    # Col_Row came from original bldg grid.
+    # Col_Row_1 came from the intersection (can contain wrong Col_Row id)
+    col_rows = [row.getValue('Col_Row') for row in arcpy.SearchCursor(bldg_intersect) if row.getValue('Col_Row') != None]
+    col_rows = list(set(col_rows))
+    no_match_cols = []
+    for col in col_rows:
+        # collect list of from Col_Row_1 where = col
+        col_list = [row.getValue('Col_Row_1') for row in arcpy.SearchCursor(bldg_intersect) if row.getValue('Col_Row') == col]
+        if col not in col_list:
+            no_match_cols.append(col.encode('utf-8'))
+
+    if len(no_match_cols) > 0:
+        # export the err cols from bldg_intersect
+        arcpy.Select_analysis(bldg_intersect, errors_gdb + "\\BLDG_ColRow_ERR", '"Col_Row" IN ('+str(no_match_cols)[1:-1]+')')
+    else:
+        arcpy.Select_analysis(bldg_intersect, errors_gdb + "\\BLDG_ColRow_ERR", '"OBJECTID" < 0')
+
+    print("The number of Col_row errors in these samples is: ", len(no_match_cols))
+
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+'''Junctions checks'''
+'''Check mzm is not null and Check mzm is in label'''
+def junction_label_track(input_layer, output_layer, query):
+
+    # Select by attribute - Search for null
+    null_layer = arcpy.MakeFeatureLayer_management(input_layer, 'jnc_lyr', query) # Create feature layer
+    print "Number of records - LAYER Null in mzm field: " ,arcpy.GetCount_management(null_layer)
+    arcpy.Select_analysis(null_layer, errors_gdb + "\\JUNCTIONS_mzm_Null", '"OBJECTID" < 0')
+
+    unmatched_records = []
+    unmatched_count = 0
+
+    # Go through each record in the feature layer
+    with arcpy.da.SearchCursor(input_layer, ['label','mzm_num', 'OID@']) as cursor:
+        for row in cursor:
+            label = row[0] # Extract label field value
+            mzm = row[1] # Extract mzm field value
+            object_id = row[2] # Extract Object_id
+            # Convert label to str if it's unicode object
+            if isinstance(label, unicode):
+                label = label.encode('utf-8')
+            # Extract numeric part in label field
+            label_numbers = ''.join(filter(str.isdigit, label))
+
+            # Check if extracted numbers match mzm field
+            if label_numbers and int(label_numbers) != int(mzm):
+                unmatched_count += 1
+                unmatched_records.append(object_id)
+
+    # Create feature class for unmatched_records to output path
+    if unmatched_records:
+        query = "OBJECTID IN ({})".format(','.join(map(str, unmatched_records)))
+        # Create feature layer
+        arcpy.MakeFeatureLayer_management(input_layer, "temp_layer", query)
+        # Export unmatched items to output path
+        arcpy.CopyFeatures_management("temp_layer", output_layer)
+        result = arcpy.GetCount_management("temp_layer")
+        print "Number of Label Errors: ", result
+        print("Unmatched items exported to: {}".format(output_layer))
+    else:
+        temp = arcpy.MakeFeatureLayer_management(input_layer, "temp_layer", query)
+        arcpy.Select_analysis(temp, output_layer, '"OBJECTID" < 0')
+        print "No Unmatched items"
+
+
+    return unmatched_count
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+# main
+'''DIFFERENCE BETWEEN BNTL AND MAAGAL'''
+print("\nPreview\nDifference Between BNTL and MAAGAL:")
+result_difference(bntl, bldg)
+
+'''Create errors GDB'''
+resutls = r"<Path>"
+errors_gdb = create_gdb(resutls,"RESULT_ERRORS")
+
+'''BUILDINGS ON BOUNDARIES'''
+print("\nBuildings Cross Outline:")
+output_layer = errors_gdb + "\\BLDG_Cross_Outline"
+cross_outline(bldg, settelements, output_layer)
+
+'''ROADS CHECK'''
+print("\nROADS CHECK\nFirst section:")
+output_path = errors_gdb + "\\ROADS_FirstSection_LogicNumNull"
+query = '"STR_ID" IS NULL AND "ROAD_NUM" IS NULL AND "logic_num" IS NULL'
+first_and_second_section_road(roads, settelements, query, output_path)
+
+print("\nSecond section:")
+output_path = errors_gdb + "\\ROADS_SecondSection_LogicNumNull"
+query = '"STR_NAME" IS NULL AND "ROAD_NUM" IS NULL AND "logic_num" IS NULL'
+first_and_second_section_road(roads, settelements, query, output_path)
+
+print("\nThird section:")
+output_layer = errors_gdb + "\\ROADS_Label_ERR"
+road_label_track(roads, settelements, output_layer)
+
+print("\nFourth section:")
+checkRandomroads(roads, grid, 1500)
+
+################
+
+'''BLDG CHECK'''
+print("\nBLDG CHECK\nFirst and Second section:")
+first_and_second_section_bldg(bldg, settelements, errors_gdb)
+
+print("\nThird section:")
+query = '"ADDR_ID" IS NULL AND "MUN_HEB" IS NOT NULL AND "Label" IS NOT NULL'
+output_layer = errors_gdb + "\\BLDG_Label_ERR"
+bldg_label_track(bldg, output_layer,settelements, query)
+
+# Set new layer to check ERRORS in opposite case - ADDR_ID isn't NULL then don't get label
+output_path = errors_gdb + "\\BLDG_AddrIdlLabel_WithValues_Error"
+query = '"ADDR_ID" IS NOT NULL AND "label" IS NOT NULL'
+first_and_second_section_road(bldg, settelements, query, output_path)
+
+print("\nFourth section:")
+checkRandomBldgs(bldg, grid, 1500)
+
+################
+
+'''JUNCTIONs CHECK'''
+print("\nJUNCTIONS CHECK\nOVERALL CHECK:")
+output_layer = errors_gdb + "\\JUNCTIONS_Label_ERR"
+query = '"mzm_num" IS NULL'
+junction_label_track(junctions, output_layer, query)
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+# Set time end of process
+now = datetime.datetime.now()
+print("end time:", now.strftime("%H:%M:%S"))
