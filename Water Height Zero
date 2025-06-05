@@ -1,0 +1,59 @@
+import arcpy
+
+arcpy.env.overwriteOutput = True
+arcpy.CheckOutExtension("Spatial")
+arcpy.CheckOutExtension("ImageAnalyst")
+arcpy.CheckOutExtension("3D")
+# ----------------------------------------------------------------------------------------------------------------------
+vector_layer = arcpy.GetParameterAsText(0)  # Flow layer
+rsater_layer = arcpy.GetParameterAsText(1)  # DTM raster
+
+flow = arcpy.MakeFeatureLayer_management(vector_layer, 'test')
+dtm = arcpy.MakeRasterLayer_management(rsater_layer, 'DTM')
+
+with arcpy.da.UpdateCursor(flow, ["SHAPE@"]) as cursor:
+    for row in cursor:
+        shape = row[0]
+        list_point =[]
+        if len(shape.getPart()) == 1:
+            for part in shape:
+
+                for pnt in part:
+                    x = pnt.X
+                    y = pnt.Y
+                    cell_value = arcpy.GetCellValue_management(dtm, "{0} {1}".format(x,y))
+                    z_value = 0
+                    if  not  u'NoData'  ==cell_value.getOutput(0):
+                        z_value = float(cell_value.getOutput(0))
+                    list_point.append(arcpy.Point (x ,y, z_value ) )
+            shape  = arcpy.Polyline(arcpy.Array(list_point), shape.spatialReference, True)
+            cursor.updateRow([shape])
+del cursor
+del row
+
+
+
+# with arcpy.da.UpdateCursor(flow, ["OID@", "SHAPE@"]) as cursor: # Find Null values in Z component
+#     for row in cursor:
+#         oid = row[0]
+#         shape = row[1]
+#
+#         new_parts = arcpy.Array()
+#
+#         for part in shape:
+#             new_points = arcpy.Array()
+#             for pnt in part:
+#                 if pnt:
+#                     x = pnt.X
+#                     y = pnt.Y
+#                     cell_value = arcpy.GetCellValue_management(dtm, "{0} {1}".format(x,y))
+#                     z_value = float(cell_value.getOutput(0))
+#                     pnt.Z = z_value
+#
+#                     new_pnt = arcpy.Point(x,y,z_value)
+#                     new_points.add(new_pnt)
+#             new_parts.add(new_points)
+#         new_polyline = arcpy.Polyline(new_parts)
+#
+#         cursor.updateRow([oid, shape])
+#
