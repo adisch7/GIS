@@ -1,0 +1,50 @@
+import arcpy
+import datetime
+# ----------------------------------------------------------------------------------------------------------------------
+arcpy.env.overwriteOutput = True
+'''Set path to gdb and layers'''
+gdb_in_use= arcpy.GetParameterAsText(0) # National bantal
+point_layer = arcpy.GetParameterAsText(1)
+water_flow = arcpy.GetParameterAsText(2)
+
+#gdb_in_use = r"H:\HydrologyLines\MERGE_TRAIN\Train.gdb" # Data review
+#point_layer = gdb_in_use + "\\Point_Results"
+#water_flow = gdb_in_use + "\\WATER_FLOW"
+
+# ----------------------------------------------------------------------------------------------------------------------
+# Multipart To Single part
+point_layer_aparted = arcpy.MultipartToSinglepart_management(point_layer, gdb_in_use + "\\Points_aparted")
+
+# Feature layer of points locations to fix
+query = '"REVIEWERCODE" = 232'
+points_problematic = arcpy.MakeFeatureLayer_management(point_layer_aparted, 'PointsWithProblem', query)
+
+with arcpy.da.SearchCursor(points_problematic, ["SHAPE@"]) as cursor:
+    water_flow = arcpy.MakeFeatureLayer_management(water_flow, 'flow')
+    for row in cursor:
+        dissolved_lines = gdb_in_use + "\\dissolved_lines"
+        geom = row[0]
+
+        # Choose line pairs intersect point, Dissolve each pair
+        water = arcpy.SelectLayerByLocation_management(water_flow, "INTERSECT", geom) # Select line intersect each point
+        count = int(arcpy.GetCount_management(water)[0])
+        if count == 2:
+            length = 0
+            # Dissolve including [UNIQ_ID, PARENT, FCODE, FTYPE, FSTATUS, HYDRO_NET, BASIN_CODE, FNAME_CODE] fields
+            arcpy.Dissolve_management(water, dissolved_lines)
+            joined_lines = gdb_in_use + "\\joined_lines"
+            arcpy.SpatialJoin_analysis(dissolved_lines, water, joined_lines, "JOIN_ONE_TO_ONE", "KEEP_ALL")
+            arcpy.CalculateField_management(joined_lines, "PARENT", "!UNIQ_ID!", "PYTHON_9.3")
+            arcpy.CalculateField_management(joined_lines, "UNIQ_ID", "None", "PYTHON_9.3")
+            # Append
+            arcpy.Append_management(joined_lines, water_flow, "NO_TEST")
+            now = datetime.datetime.now()
+            time = now.strftime("%H:%M:%S")
+            arcpy.AddMessage("Line Pair Appended To Water Flow,    Time: {}".format(time))
+            # Delete temporary layers
+            arcpy.Delete_management(joined_lines)
+            arcpy.DeleteFeatures_management(water)
+    arcpy.Delete_management(dissolved_lines)
+arcpy.Delete_management(gdb_in_use + "\\Points_aparted")
+
+arcpy.AddMessage("\nProcess Completed\n")
